@@ -3,7 +3,7 @@ import {OrbitControls} from './vendor/OrbitControls.js';
 import {RoundedBoxGeometry} from './vendor/RoundedBoxGeometry.js';
 import {RoomEnvironment} from './vendor/RoomEnvironment.js';
 import {Simulation,RAPIER} from './simulation.js';
-import {SCENES,DEFAULT_WORLD,PALETTES,MAX_BODIES,launchVelocity,validRecipe,dropProperties,towerTop} from './model.js';
+import {SCENES,DEFAULT_WORLD,PALETTES,MAX_BODIES,launchVelocity,validRecipe,dropProperties,towerTop,TOWER_CAP,TOWER_BUILD_KEYS,sceneFields,cleanSettings,towerCount,towerLaunchPoint} from './model.js';
 
 const $=s=>document.querySelector(s);
 const icons={
@@ -18,7 +18,7 @@ const names=Object.keys(SCENES),states=Object.fromEntries(names.map(k=>[k,{...SC
 let active='tower',worldSettings={...DEFAULT_WORLD},palette='sorbet',finish='glass',paused=false,speed=1,mode='aim',soundOn=false,sim;
 let environmentMap,marbleMaterials;
 let jellySkin,jellyWeights,slabDecoration;
-let scene,camera,renderer,orbit,staticGroup,decorGroup,drumVisual,magnetVisual,cannon,trajectory,aimMarker,dropGhost;
+let scene,camera,renderer,orbit,sun,staticGroup,decorGroup,drumVisual,magnetVisual,cannon,trajectory,aimMarker,dropGhost;
 let ballInstances,boxInstances,ballItems=[],boxItems=[],ready=false;
 const transform=new THREE.Object3D(),tmpColor=new THREE.Color(),ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
 const aim=new THREE.Vector3(0,2.7,-.6),launchPoint=new THREE.Vector3(0,1.15,5.4);
@@ -52,7 +52,7 @@ function setupRenderer(){
   camera=new THREE.PerspectiveCamera(36,1,.1,120);
   orbit=new OrbitControls(camera,$('#canvas'));orbit.enableDamping=true;orbit.dampingFactor=.07;orbit.minDistance=9;orbit.maxDistance=75;orbit.maxPolarAngle=Math.PI*.48;orbit.minPolarAngle=.15;orbit.enablePan=false;orbit.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.ROTATE};
   scene.add(new THREE.HemisphereLight('#fffaf1','#b7a4c7',2.6));
-  const sun=new THREE.DirectionalLight('#fff4df',3.4);sun.position.set(-7,17,10);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-13,right:13,top:16,bottom:-12,near:1,far:45});sun.shadow.bias=-.0004;sun.shadow.normalBias=.035;sun.shadow.radius=3;scene.add(sun);
+  sun=new THREE.DirectionalLight('#fff4df',3.4);sun.position.set(-7,17,10);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-13,right:13,top:16,bottom:-12,near:1,far:45});sun.shadow.bias=-.0004;sun.shadow.normalBias=.035;sun.shadow.radius=3;scene.add(sun);
   const fill=new THREE.DirectionalLight('#cdd9ff',1.5);fill.position.set(8,6,-5);scene.add(fill);
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),meshMaterial('#eeeae2',.9));ground.rotation.x=-Math.PI/2;ground.position.y=-.75;ground.receiveShadow=true;scene.add(ground);
   staticGroup=new THREE.Group();decorGroup=new THREE.Group();scene.add(staticGroup,decorGroup);
@@ -63,8 +63,12 @@ function setupRenderer(){
   new ResizeObserver(resize).observe($('#viewport'));resize();
 }
 function resetCamera(){
-  if(active==='tower'&&states.tower.delivery==='drop'){const h=towerTop(states.tower)+states.tower.dropHeight,scale=Math.max(1,h/10);orbit.target.set(0,h*.34,0);camera.position.set(13*scale,11.5*scale+h*.34,17*scale);}
-  else if(active==='tower'&&states.tower.delivery==='domino'){const h=Math.max(towerTop(states.tower),states.tower.slabHeight),scale=Math.max(1,h/7);orbit.target.set(-1,h*.3,0);camera.position.set(13*scale,11.5*scale,18*scale);}
+  orbit.maxDistance=75;camera.far=120;camera.updateProjectionMatrix();scene.fog.near=35;scene.fog.far=90;
+  if(active==='tower'){
+    const p=sim.params,h=Math.max(towerTop(p)+(p.delivery==='drop'?p.dropHeight+p.ball:0),p.delivery==='domino'?p.slabHeight:0),scale=Math.max(1,h/9,sim.tray.width/15,sim.tray.depth/13);
+    orbit.target.set(0,h*.35,0);camera.position.set(13*scale,11.5*scale+h*.35,17*scale);orbit.maxDistance=Math.max(75,60*scale);camera.far=Math.max(120,150*scale);camera.updateProjectionMatrix();scene.fog.near=35*scale;scene.fog.far=90*scale;
+  }
+  else if(active==='domino'){const scale=Math.max(1,sim.tray.width/15,sim.tray.depth/13);camera.position.set(11*scale,15*scale,17*scale);orbit.target.set(0,.5,0);orbit.maxDistance=75*scale;camera.far=150*scale;camera.updateProjectionMatrix();scene.fog.near=35*scale;scene.fog.far=90*scale;}
   else if(active==='jelly'){camera.position.set(11,10,18);orbit.target.set(0,2.4,0);}
   else if(active==='marbles'){camera.position.set(10,9,18);orbit.target.set(0,2.8,-1.3);}
   else if(active==='tumbler'){camera.position.set(10,8,18);orbit.target.set(0,2.6,0);}
@@ -87,15 +91,16 @@ function buildVisuals(){
     mesh.position.copy(item.body.translation());mesh.quaternion.copy(item.body.rotation());item.mesh=mesh;
   }
   // The cream tray sits on a violet base with four small rubber feet.
-  box([15.3,.2,13.3],[0,-.48,0],'#bba3d1');
+  box([sim.tray.width+.3,.2,sim.tray.depth+.3],[0,-.48,0],'#bba3d1');
+  {if(active==='tower')launchPoint.copy(towerLaunchPoint(sim.params));const extent=Math.max(sim.tray.width,sim.tray.depth,active==='tower'?towerTop(sim.params):10);sun.position.set(-extent*.5,extent*1.5,extent*.7);Object.assign(sun.shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent,far:extent*4});sun.shadow.camera.updateProjectionMatrix();}
   for(const x of [-6,6])for(const z of [-5,5])cylinder(.32,.25,[x,-.6,z],'#9a85ac');
   for(let i=-6;i<=6;i++)for(const z of [-5.9,5.9])box([.025,.008,.12],[i,.009,z],'#d9cedf');
   if(active==='tower'&&states.tower.delivery!=='domino'){
     if(states.tower.delivery==='launch'){
-    const base=cylinder(.8,.18,[0,.09,5.5],'#87c8b8');
-    torus(.64,.025,[0,.195,5.5],'#c4f0df').rotation.x=Math.PI/2;
-    const support=box([.7,.7,.65],[0,.48,5.5],'#77b5a6');
-    cannon=new THREE.Group();cannon.position.set(0,1.05,5.5);decorGroup.add(cannon);
+    const base=cylinder(.8,.18,[0,.09,launchPoint.z],'#87c8b8');
+    torus(.64,.025,[0,.195,launchPoint.z],'#c4f0df').rotation.x=Math.PI/2;
+    const support=box([.7,.7,.65],[0,.48,launchPoint.z],'#77b5a6');
+    cannon=new THREE.Group();cannon.position.set(0,1.05,launchPoint.z);decorGroup.add(cannon);
     cylinder(.24,1.12,[0,.4,0],'#eab465',cannon);
     cylinder(.29,.17,[0,.96,0],'#d09b53',cannon);
     cylinder(.19,.015,[0,1.055,0],'#75586c',cannon);
@@ -149,7 +154,7 @@ function buildVisuals(){
 function updateAim(){
   if(active!=='tower'||!trajectory)return;
   if(states.tower.delivery==='drop'){
-    const p=states.tower,y=towerTop(p)+p.dropHeight+p.ball/2;
+    const p=sim.params,y=towerTop(p)+p.dropHeight+p.ball/2;
     const summary=$('#drop-summary');if(summary){const props=dropProperties(p);summary.innerHTML=`<strong>${props.mass.toLocaleString(undefined,{maximumFractionDigits:1})} kg</strong><span>${Math.round(props.density).toLocaleString()} kg/m³ · ${p.dropHeight} m above the starting tower</span>`;}
     if(!dropGhost)return;
     dropGhost.position.set(aim.x,y,aim.z);dropGhost.scale.setScalar(p.ball);
@@ -163,7 +168,21 @@ function updateAim(){
   const points=[];for(let i=0;i<=40;i++){const t=flight*i/40;points.push(new THREE.Vector3(launchPoint.x+velocity.x*t+.5*sim.world.gravity.x*t*t,launchPoint.y+velocity.y*t+.5*sim.world.gravity.y*t*t,launchPoint.z+velocity.z*t));}
   trajectory.geometry.dispose();trajectory.geometry=new THREE.BufferGeometry().setFromPoints(points);trajectory.computeLineDistances();aimMarker.position.copy(aim);aimMarker.quaternion.copy(camera.quaternion);
 }
+function ensureInstanceCapacity(){
+  // Grow GPU buffers with physics; every cube must remain visible and pickable.
+  const capacity=Math.max(MAX_BODIES,Math.ceil(sim.items.length/256)*256),large=sim.items.length>2000;
+  if(!geometryCache.has('simple-box'))geometryCache.set('simple-box',new THREE.BoxGeometry(1,1,1));
+  const geometry=large?geometryCache.get('simple-box'):boxGeometry();
+  for(const kind of ['ball','box']){
+    const old=kind==='ball'?ballInstances:boxInstances;
+    if(old.instanceMatrix.count>=sim.items.length&&(kind==='ball'||old.geometry===geometry))continue;
+    const mesh=new THREE.InstancedMesh(kind==='ball'?sphereGeometry():geometry,old.material,capacity);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.castShadow=true;mesh.receiveShadow=true;mesh.frustumCulled=false;mesh.count=0;
+    scene.remove(old);old.dispose();scene.add(mesh);if(kind==='ball')ballInstances=mesh;else boxInstances=mesh;
+  }
+}
 function syncInstances(){
+  ensureInstanceCapacity();
   ballItems=[];boxItems=[];
   for(const item of sim.items){if(item.role==='jelly')continue;const arr=item.shape==='ball'?ballItems:boxItems,m=item.shape==='ball'?ballInstances:boxInstances,i=arr.length;arr.push(item);transform.position.copy(item.body.translation());transform.quaternion.copy(item.body.rotation());transform.scale.set(...item.size);transform.updateMatrix();m.setMatrixAt(i,transform.matrix);m.setColorAt(i,tmpColor.set(PALETTES[palette][item.color%6]));}
   for(const [m,arr] of [[ballInstances,ballItems],[boxInstances,boxItems]]){m.count=arr.length;m.instanceMatrix.needsUpdate=true;if(m.instanceColor)m.instanceColor.needsUpdate=true;}
@@ -185,7 +204,8 @@ function renderControls(){
   const data=SCENES[active],isDrop=active==='tower'&&states.tower.delivery==='drop',isSlab=active==='tower'&&states.tower.delivery==='domino';let html='',sectionOpen=false;
   $('.finish-section').hidden=active==='jelly'||active==='domino'||isSlab;
   if(active==='tower')html=`<div class="tower-modes" role="group" aria-label="Tower Smash mode">${[['launch','↗ Launch'],['drop','↓ Ball drop'],['domino','▥ Domino']].map(([value,label])=>`<button data-delivery="${value}" class="${states.tower.delivery===value?'active':''}" aria-pressed="${states.tower.delivery===value}">${label}</button>`).join('')}</div>`;
-  for(const f of data.fields){
+  if(active==='tower')html+=`<div class="tower-budget"><label class="limit-toggle"><input type="checkbox" id="tower-unlimited" ${states.tower.unlimited?'checked':''}><span>Uncapped towers <small>For powerful PCs</small></span></label><p>${states.tower.unlimited?'No cube-count cap. Sliders unlock up to 96,000 cubes. Physics uses your CPU too; extreme towers can freeze the tab. Start small and build up.':'550-cube cap keeps things light. Turn this on for much bigger towers.'}</p><output id="tower-count-preview" aria-live="polite"></output><button id="build-tower" class="button purple-light" type="button">Build tower</button></div>`;
+  for(const f of sceneFields(active,states[active])){
     if(f.length===2){if(sectionOpen)html+='</section><hr class="section-divider">';html+=`<section class="control-section"><h3 class="section-title">${f[0]}<span class="section-symbol">${f[1]}</span></h3>`;sectionOpen=true;continue;}
     const [key,label,min,max,step,unit]=f;
     if(active==='tower'){
@@ -204,39 +224,59 @@ function renderControls(){
   if(isDrop)html+='<div class="density-presets" role="group" aria-label="Density presets"><button data-density="100">Foam</button><button data-density="1000">Water-like</button><button data-density="2500">Glass</button><button data-density="7850">Steel</button></div><div id="drop-summary" class="drop-summary"></div>';
   html+=`<button id="action" class="action-button"><span>${isDrop?'↓':'↗'}</span>${isDrop?'Drop a ball':isSlab?'Tip the domino':data.action}</button><p class="action-note">${isDrop?'Click a spot on the tower or tray · F to drop':isSlab?'F to tip it into the tower · R to rebuild':data.note}</p>`;
   $('#scene-controls').innerHTML=html;$('#action').addEventListener('click',doAction);
+  if(active==='tower'){
+    $('#tower-unlimited').addEventListener('change',e=>{states.tower=cleanSettings('tower',{...states.tower,unlimited:e.target.checked});if(!e.target.checked)rebuild(false);renderControls();});
+    $('#build-tower').addEventListener('click',()=>{rebuild(false);updateTowerPreview();});
+    updateTowerPreview();
+  }
   $('#stage-action').textContent=isDrop?'↓ Drop':isSlab?'▥ Tip':({tower:'↗ Launch',marbles:'+ Pour',domino:'↗ Ripple',tumbler:'+ Add',magnet:'✳ Scatter',jelly:'↓ Jelly'}[active]);
-  for(const button of document.querySelectorAll('[data-delivery]'))button.addEventListener('click',()=>{const reset=states.tower.delivery==='domino'||button.dataset.delivery==='domino';states.tower.delivery=button.dataset.delivery;sim.params.delivery=button.dataset.delivery;renderControls();if(reset)rebuild(false);else buildVisuals();resetCamera();document.querySelector('[data-mode="aim"]').hidden=states.tower.delivery==='domino';setMode(states.tower.delivery==='domino'?'orbit':'aim');});
-  for(const button of document.querySelectorAll('[data-density]'))button.addEventListener('click',()=>{states.tower.massMode='density';states.tower.density=Number(button.dataset.density);Object.assign(sim.params,states.tower);if(states.tower.density===2500)finish='glass';else if(states.tower.density===7850)finish='metal';else finish='resin';ballInstances.material=marbleMaterials[finish];renderControls();updateAim();});
+  for(const button of document.querySelectorAll('[data-delivery]'))button.addEventListener('click',()=>{if(button.dataset.delivery!==states.tower.delivery)resetSliders(button.dataset.delivery);});
+  for(const button of document.querySelectorAll('[data-density]'))button.addEventListener('click',()=>{states.tower.massMode='density';states.tower.density=Number(button.dataset.density);sim.params.massMode=states.tower.massMode;sim.params.density=states.tower.density;if(states.tower.density===2500)finish='glass';else if(states.tower.density===7850)finish='metal';else finish='resin';ballInstances.material=marbleMaterials[finish];renderControls();updateAim();});
   $('#world-controls').innerHTML=[['gravity','Gravity',0,25,.01,'m/s²'],['bounce','Bounciness',0,.95,.01,'%'],['friction','Surface grip',0,1,.01,'%'],['drag','Air resistance',0,2,.01,''],['tilt','Gravity tilt',-18,18,1,'°']].map(([k,l,a,b,c,u])=>rangeHTML(k,l,a,b,c,u,worldSettings[k],'world')).join('');
   for(const input of document.querySelectorAll('input[type=range]')){
     input.addEventListener('input',()=>{
       const k=input.dataset.key,v=Number(input.value),kind=input.dataset.kind;
       $(`#out-${kind}-${k}`).textContent=format(v,input.dataset.unit);input.style.setProperty('--fill',`${(v-input.min)/(input.max-input.min)*100}%`);
       if(kind==='world'){worldSettings[k]=v;sim.applyWorld(worldSettings);updateAim();}
-      else {states[active][k]=v;sim.params[k]=v;if(active==='tower'){updateAim();if(k==='dropHeight')resetCamera();}}
+      else {states[active][k]=v;if(!(active==='tower'&&states.tower.unlimited&&TOWER_BUILD_KEYS.includes(k)))sim.params[k]=v;if(active==='tower'){updateTowerPreview();updateAim();if(k==='dropHeight')resetCamera();}}
     });
-    input.addEventListener('change',()=>{const k=input.dataset.key;if(input.dataset.kind==='scene'){if(['width','height','depth','cube','count','gap','fill','size','slabHeight','slabWidth','slabThickness','slabMass','steps','rise','drop','nudge'].includes(k))rebuild(false);if(active==='jelly'&&['stiffness','damping'].includes(k))sim.updateJellySprings();}});
+    input.addEventListener('change',()=>{const k=input.dataset.key;if(input.dataset.kind==='scene'){if(active==='tower'&&states.tower.unlimited&&TOWER_BUILD_KEYS.includes(k))return;if(['width','height','depth','cube','count','gap','fill','size','slabHeight','slabWidth','slabThickness','slabMass','steps','rise','drop','nudge'].includes(k))rebuild(false);if(active==='jelly'&&['stiffness','damping'].includes(k))sim.updateJellySprings();}});
   }
-  for(const select of document.querySelectorAll('#scene-controls select'))select.addEventListener('change',()=>{const k=select.dataset.key;states[active][k]=select.value;sim.params[k]=select.value;if(k==='massMode'){renderControls();updateAim();}else if(k!=='polarity')rebuild(false);});
+  for(const select of document.querySelectorAll('#scene-controls select'))select.addEventListener('change',()=>{const k=select.dataset.key;states[active][k]=select.value;if(active==='tower'&&states.tower.unlimited&&TOWER_BUILD_KEYS.includes(k)){updateTowerPreview();return;}sim.params[k]=select.value;if(k==='massMode'){renderControls();updateAim();}else if(k!=='polarity')rebuild(false);});
   $('#palettes').innerHTML=Object.entries(PALETTES).map(([key,colors])=>`<button class="palette ${key===palette?'active':''}" data-palette="${key}" style="background:conic-gradient(${colors[0]} 0deg 120deg,${colors[2]} 120deg 240deg,${colors[4]} 240deg)" aria-label="${key} palette" title="${key}" aria-pressed="${key===palette}"></button>`).join('');
   for(const button of document.querySelectorAll('[data-palette]'))button.addEventListener('click',()=>{palette=button.dataset.palette;buildVisuals();renderControls();toast(`${palette[0].toUpperCase()+palette.slice(1)} colors. Lovely choice.`);});
   if(isDrop)updateAim();
 }
+function updateTowerPreview(){
+  if(active!=='tower'||!$('#tower-count-preview'))return;
+  const p=states.tower,count=towerCount(p),built=p.unlimited?count:Math.min(TOWER_CAP,count),pending=[...TOWER_BUILD_KEYS,'unlimited'].some(k=>p[k]!==sim.params?.[k]);
+  $('#tower-count-preview').textContent=`${built.toLocaleString()} cubes${!p.unlimited&&count>TOWER_CAP?' · capped from '+count.toLocaleString():''}${pending?' · ready to build':''}`;
+  $('#build-tower').textContent=pending?'Build this tower':'Rebuild tower';
+}
 function rebuild(notify=true){
   releaseDrag();sim.reset(active,states[active],worldSettings);accumulator=0;
   if(active==='tower'){aim.set(0,Math.min(5,states.tower.height*states.tower.cube*.45),-.6);}
-  buildVisuals();syncInstances();updateStatus();if(active==='tower'&&states.tower.delivery!=='launch')resetCamera();if(notify)toast('Fresh start. Same recipe. New possibilities.');
-  if(active==='tower'&&sim.items.length===550)toast('550-cube limit reached. Try smaller tower dimensions.');
+  buildVisuals();syncInstances();updateStatus();if(active==='tower'||active==='domino'){resetCamera();updateTowerPreview();}if(notify)toast('Fresh start. Same recipe. New possibilities.');
+  if(active==='tower'&&!states.tower.unlimited&&towerCount(states.tower)>TOWER_CAP)toast('550-cube cap reached. Enable Uncapped towers to build them all.');
 }
-function setScene(key){
+function setScene(key,restoreRecipe=false){
+  if(!restoreRecipe){states[key]={...SCENES[key].defaults};worldSettings={...DEFAULT_WORLD};}
   active=key;document.querySelectorAll('.scene-tab').forEach(b=>{b.classList.toggle('active',b.dataset.scene===key);b.setAttribute('aria-current',b.dataset.scene===key?'true':'false');});
   $('#scene-number').textContent=`EXPERIMENT ${String(names.indexOf(key)+1).padStart(2,'0')} / ${String(names.length).padStart(2,'0')}`;
   $('#scene-title').innerHTML=SCENES[key].name+'<span>.</span>';$('#scene-description').textContent=SCENES[key].desc;$('#hint-text').textContent=SCENES[key].hint;
   paused=false;updatePause();const aimable=key==='magnet'||(key==='tower'&&states.tower.delivery!=='domino');document.querySelector('[data-mode="aim"]').hidden=!aimable;setMode(aimable?'aim':key==='jelly'?'orbit':'grab');renderControls();$('.controls').scrollTop=0;rebuild(false);resetCamera();updateAim();
 }
 function updateStatus(){const n=sim.items.length;$('#body-count').textContent=(active==='jelly'?'1 jelly cube':`${n} ${active==='tower'?'objects':'pieces'}`)+(paused?' · paused':'');}
+function resetSliders(delivery=states.tower.delivery){
+  states[active]={...SCENES[active].defaults};worldSettings={...DEFAULT_WORLD};
+  if(active==='tower')states.tower.delivery=delivery;
+  renderControls();rebuild(false);resetCamera();updateAim();
+  const aimable=active==='magnet'||(active==='tower'&&delivery!=='domino');
+  document.querySelector('[data-mode="aim"]').hidden=!aimable;setMode(aimable?'aim':active==='jelly'?'orbit':'grab');
+  toast('Sliders reset. A fresh experiment.');
+}
 function updatePause(){$('#pause').textContent=paused?'▶':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'Resume simulation':'Pause simulation');$('#pause').title=paused?'Resume (Space)':'Pause (Space)';if(sim)updateStatus();}
-function doAction(){if(!ready)return;if(paused){paused=false;updatePause();}if(active==='jelly'){rebuild(false);return;}if(sim.items.length>=MAX_BODIES){toast('The tray is full. Rebuild for a fresh start.');return;}sim.action(aim);if(active==='tower')playNote(180,.08,'triangle',.04);if(active==='domino')toast('Here comes the ripple…');}
+function doAction(){if(!ready)return;if(paused){paused=false;updatePause();}if(active==='jelly'){rebuild(false);return;}if(sim.items.length>=sim.bodyLimit){toast('The tray is full. Rebuild for a fresh start.');return;}sim.action(aim);if(active==='tower')playNote(180,.08,'triangle',.04);if(active==='domino')toast('Here comes the ripple…');}
 function setMode(value){mode=value;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===value));if(orbit)orbit.enabled=true;$('#canvas').style.cursor=value==='orbit'?'grab':value==='grab'?'grab':'crosshair';if(ready)$('#hint-text').textContent=value==='grab'?'Drag an object to lift it. Release to drop or flick.':value==='orbit'?'Drag to orbit the tray. Scroll to get a closer look.':active==='tower'&&states.tower.delivery==='drop'?'Click the tower or tray to place the drop. Let gravity do the rest.':SCENES[active].hint;}
 function setRay(event){const r=$('#canvas').getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);ray.setFromCamera(pointer,camera);}
 function pick(){const hit=ray.intersectObjects(jellySkin?[boxInstances,ballInstances,jellySkin]:[boxInstances,ballInstances],false)[0];if(!hit)return null;if(hit.object===jellySkin){let best=null,distance=Infinity;for(const item of sim.jellyNodes){const p=item.body.translation(),d=hit.point.distanceToSquared(new THREE.Vector3(p.x,p.y,p.z));if(d<distance){best=item;distance=d;}}return {hit,item:best};}return {hit,item:(hit.object===boxInstances?boxItems:ballItems)[hit.instanceId]};}
@@ -251,10 +291,10 @@ function bindPointer(){
   });
   canvas.addEventListener('pointermove',e=>{
     if(pointerStart&&Math.hypot(e.clientX-pointerStart.x,e.clientY-pointerStart.y)>4)pointerMoved=true;
-    if(dragging){setRay(e);const p=new THREE.Vector3();if(ray.ray.intersectPlane(dragging.plane,p)){dragging.target.copy(p).add(dragging.offset);dragging.target.y=Math.max(.3,Math.min(13,dragging.target.y));dragging.target.x=THREE.MathUtils.clamp(dragging.target.x,-7,7);dragging.target.z=THREE.MathUtils.clamp(dragging.target.z,-6,6);}}
+    if(dragging){setRay(e);const p=new THREE.Vector3();if(ray.ray.intersectPlane(dragging.plane,p)){dragging.target.copy(p).add(dragging.offset);dragging.target.y=Math.max(.3,Math.min(active==='tower'?towerTop(sim.params)+10:13,dragging.target.y));dragging.target.x=THREE.MathUtils.clamp(dragging.target.x,-sim.tray.width/2+.5,sim.tray.width/2-.5);dragging.target.z=THREE.MathUtils.clamp(dragging.target.z,-sim.tray.depth/2+.5,sim.tray.depth/2-.5);}}
   });
   canvas.addEventListener('pointerup',e=>{
-    if(mode==='aim'&&pointerStart&&!pointerMoved){setRay(e);if(active==='tower'){const hit=pick();if(hit){aim.copy(hit.hit.point);updateAim();toast(states.tower.delivery==='drop'?'Drop position set. Look out below!':'Aim set. Let it fly!');}else {const drop=states.tower.delivery==='drop',plane=drop?new THREE.Plane(new THREE.Vector3(0,1,0),0):new THREE.Plane(new THREE.Vector3(0,0,1),.6),p=new THREE.Vector3();if(ray.ray.intersectPlane(plane,p)){aim.set(THREE.MathUtils.clamp(p.x,-6,6),THREE.MathUtils.clamp(p.y,.3,10),drop?THREE.MathUtils.clamp(p.z,-5,5):-.6);updateAim();}}}else if(active==='magnet'){const p=new THREE.Vector3();if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),p)){sim.field.x=THREE.MathUtils.clamp(p.x,-6,6);sim.field.z=THREE.MathUtils.clamp(p.z,-5,5);}}}
+    if(mode==='aim'&&pointerStart&&!pointerMoved){setRay(e);if(active==='tower'){const hit=pick();if(hit){aim.copy(hit.hit.point);updateAim();toast(states.tower.delivery==='drop'?'Drop position set. Look out below!':'Aim set. Let it fly!');}else {const drop=states.tower.delivery==='drop',plane=drop?new THREE.Plane(new THREE.Vector3(0,1,0),0):new THREE.Plane(new THREE.Vector3(0,0,1),.6),p=new THREE.Vector3();if(ray.ray.intersectPlane(plane,p)){aim.set(THREE.MathUtils.clamp(p.x,-sim.tray.width/2+1,sim.tray.width/2-1),THREE.MathUtils.clamp(p.y,.3,towerTop(sim.params)+1),drop?THREE.MathUtils.clamp(p.z,-sim.tray.depth/2+1,sim.tray.depth/2-1):-.6);updateAim();}}}else if(active==='magnet'){const p=new THREE.Vector3();if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),p)){sim.field.x=THREE.MathUtils.clamp(p.x,-6,6);sim.field.z=THREE.MathUtils.clamp(p.z,-5,5);}}}
     releaseDrag();pointerStart=null;
   });
   canvas.addEventListener('pointercancel',()=>{releaseDrag();pointerStart=null;});
@@ -274,7 +314,7 @@ function renderRecipes(){
   recipes.forEach((recipe,i)=>{
     const row=document.createElement('div');row.className='recipe';const copy=document.createElement('div');copy.className='recipe-copy';copy.textContent=recipe.name;
     const detail=document.createElement('small');detail.textContent=`${SCENES[recipe.scene].name} · ${recipe.palette} · ${recipe.finish}`;copy.append(detail);
-    const load=document.createElement('button');load.textContent='Play';load.addEventListener('click',()=>{states[recipe.scene]={...recipe.params};worldSettings={...recipe.world};palette=recipe.palette;finish=recipe.finish;ballInstances.material=marbleMaterials[finish];setScene(recipe.scene);$('#recipe-dialog').close();toast('Recipe restored. Ready for another round.');});
+    const load=document.createElement('button');load.textContent='Play';load.addEventListener('click',()=>{states[recipe.scene]={...recipe.params};worldSettings={...recipe.world};palette=recipe.palette;finish=recipe.finish;ballInstances.material=marbleMaterials[finish];setScene(recipe.scene,true);$('#recipe-dialog').close();toast('Recipe restored. Ready for another round.');});
     const remove=document.createElement('button');remove.className='delete';remove.textContent='×';remove.setAttribute('aria-label',`Delete ${recipe.name}`);remove.addEventListener('click',()=>{const old=recipes;recipes=recipes.filter((_,n)=>n!==i);if(!persistRecipes())recipes=old;renderRecipes();});row.append(copy,load,remove);list.append(row);
   });
 }
@@ -285,6 +325,7 @@ function bindUI(){
   for(const btn of document.querySelectorAll('[data-speed]'))btn.addEventListener('click',()=>{speed=Number(btn.dataset.speed);document.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('active',b===btn));});
   $('#pause').addEventListener('click',()=>{paused=!paused;updatePause();});$('#reset').addEventListener('click',()=>rebuild());$('#camera-reset').addEventListener('click',resetCamera);
   $('#stage-action').addEventListener('click',doAction);
+  $('#reset-sliders').addEventListener('click',()=>resetSliders());
   $('#zen').addEventListener('click',()=>{document.body.classList.toggle('zen');$('#zen').setAttribute('aria-label',document.body.classList.contains('zen')?'Show controls':'Hide controls');});
   $('#physics-reset').addEventListener('click',()=>{worldSettings={...DEFAULT_WORLD};sim.applyWorld(worldSettings);renderControls();updateAim();toast('Back to a familiar kind of gravity.');});
   $('#sound').addEventListener('click',async()=>{soundOn=!soundOn;if(soundOn){audioContext??=new AudioContext();await audioContext.resume();playNote(700,.12,'sine',.02);}$('#sound').textContent=soundOn?'Sound on':'Sound off';$('#sound').setAttribute('aria-pressed',String(soundOn));});
@@ -301,12 +342,13 @@ function animate(time){
   const elapsed=lastTime?Math.min((time-lastTime)/1000,.05):0;lastTime=time;
   if(!paused&&!document.hidden){
     accumulator+=elapsed*speed;let steps=0;
-    while(accumulator>=1/60&&steps<4){
+    while(accumulator>=1/60&&steps<(sim.items.length>2000?1:4)){
       if(dragging&&!dragging.item.body.isValid())releaseDrag();
       if(dragging){const body=dragging.item.body,p=body.translation(),delta=dragging.target.clone().sub(new THREE.Vector3(p.x,p.y,p.z)).multiplyScalar(13);delta.clampLength(0,20);body.setLinvel(delta,true);body.setAngvel({x:0,y:0,z:0},true);}
       sim.step();drainAudio();accumulator-=1/60;steps++;
     }
   }
+  if(sim.items.length>2000)accumulator=Math.min(accumulator,1/60);
   syncInstances();orbit.update();if(aimMarker&&states.tower.delivery!=='drop')aimMarker.quaternion.copy(camera.quaternion);renderer.render(scene,camera);
   frameCount++;if(time-fpsTime>1000){$('#fps').textContent=`${Math.round(frameCount*1000/(time-fpsTime))} fps`;fpsTime=time;frameCount=0;updateStatus();}
 }

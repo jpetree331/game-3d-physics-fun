@@ -1,5 +1,5 @@
 import RAPIER from './vendor/rapier.mjs';
-import {DEFAULT_WORLD,MAX_BODIES,towerLayout,launchVelocity,seeded,dropProperties,towerTop} from './model.js';
+import {DEFAULT_WORLD,MAX_BODIES,towerLayout,launchVelocity,seeded,dropProperties,towerTop,towerTray,towerLaunchPoint,dominoLayout} from './model.js';
 export {RAPIER};
 export const quatZ=a=>({x:0,y:0,z:Math.sin(a/2),w:Math.cos(a/2)});
 export const quatY=a=>({x:0,y:Math.sin(a/2),z:0,w:Math.cos(a/2)});
@@ -9,8 +9,13 @@ export class Simulation {
     this.world?.free();this.queue?.free();this.scene=scene;this.params={...params};this.settings={...settings};
     this.world=new RAPIER.World({x:0,y:-settings.gravity,z:0});this.world.numSolverIterations=8;
     this.queue=new RAPIER.EventQueue(true);this.items=[];this.fixed=[];this.motors=[];this.jellyJoints=[];this.jellyNodes=[];this.slab=null;this.time=0;this.pour=0;this.serial=0;this.rand=seeded(42);this.field={x:0,y:0.4,z:0};
-    this.addBox([15,0.4,13],[0,-0.2,0],{fixed:true,role:'floor'});
-    for(const [size,pos] of [[[15,.45,.22],[0,.22,-6.5]],[[15,.45,.22],[0,.22,6.5]],[[.22,.45,13],[-7.5,.22,0]],[[.22,.45,13],[7.5,.22,0]]])this.addBox(size,pos,{fixed:true,role:'rim'});
+    this.bodyLimit=scene==='tower'&&params.unlimited?Infinity:MAX_BODIES;
+    this.tray=scene==='tower'?towerTray(params):{width:15,depth:13};
+    this.dominoPoints=scene==='domino'?dominoLayout(params):[];
+    if(scene==='domino')this.tray={width:Math.max(15,...this.dominoPoints.map(p=>Math.abs(p.x)*2+3)),depth:Math.max(13,...this.dominoPoints.map(p=>Math.abs(p.z)*2+3))};
+    const {width:w,depth:d}=this.tray;
+    this.addBox([w,0.4,d],[0,-0.2,0],{fixed:true,role:'floor'});
+    for(const [size,pos] of [[[w,.45,.22],[0,.22,-d/2]],[[w,.45,.22],[0,.22,d/2]],[[.22,.45,d],[-w/2,.22,0]],[[.22,.45,d],[w/2,.22,0]]])this.addBox(size,pos,{fixed:true,role:'rim'});
     if(scene==='tower')this.buildTower();
     if(scene==='marbles')this.buildMarbles();
     if(scene==='domino')this.buildDomino();
@@ -20,7 +25,7 @@ export class Simulation {
     this.applyWorld(settings);
   }
   add(shape,size,pos,opts={}){
-    if(!opts.fixed&&!opts.kinematic&&this.items.length>=MAX_BODIES)return null;
+    if(!opts.fixed&&!opts.kinematic&&this.items.length>=this.bodyLimit)return null;
     const desc=opts.fixed?RAPIER.RigidBodyDesc.fixed():opts.kinematic?RAPIER.RigidBodyDesc.kinematicPositionBased():RAPIER.RigidBodyDesc.dynamic();
     desc.setTranslation(...pos);if(opts.rotation)desc.setRotation(opts.rotation);
     if(!opts.fixed&&!opts.kinematic)desc.setLinearDamping(this.settings.drag).setAngularDamping(.2).setCcdEnabled(true);
@@ -81,13 +86,7 @@ export class Simulation {
   }
   spawnMarble(y=7.4){if(this.items.length>=260)this.remove(this.items[0]);return this.addBall(this.params.size,[(this.rand()-.5)*5.5,y,-2.08],{role:'marble'});}
   buildDomino(){
-    let a=0;
-    for(let i=0;i<this.params.count;i++){
-      const r=1.1+a*.23,x=Math.cos(a)*r,z=Math.sin(a)*r;
-      const tangent=Math.atan2(Math.cos(a)*r+.23*Math.sin(a),-Math.sin(a)*r+.23*Math.cos(a));
-      this.addBox([.17,1.0,.55],[x,.515,z],{rotation:quatY(-tangent),color:Math.floor(i/9)%6,role:'domino'});
-      a+=this.params.gap/Math.hypot(r,.23);
-    }
+    this.dominoPoints.forEach((p,i)=>this.addBox([.17,1.0,.55],[p.x,.515,p.z],{rotation:quatY(p.angle),color:Math.floor(i/9)%6,role:'domino'}));
   }
   buildTumbler(){
     const frame=this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0,3.4,-.7));
@@ -118,7 +117,7 @@ export class Simulation {
     for(const item of this.items){item.body.setLinearDamping(settings.drag);item.body.wakeUp();}
   }
   launch(target){
-    const p=this.params,from={x:0,y:1.15,z:5.4};
+    const p=this.params,from=towerLaunchPoint(p);
     const item=this.addBall(p.ball,[from.x,from.y,from.z],{mass:p.mass,role:'projectile',color:1});
     if(item)item.body.setLinvel(launchVelocity(from,target,p.power,this.world.gravity),true);
     return item;

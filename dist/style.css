@@ -9,3 +9,7 @@
 
 .transport .stage-action{background:#f3e8cf;color:#a98243;font-weight:700;font-size:11px;padding:0 12px;min-width:68px;white-space:nowrap}.transport .stage-action:hover{background:#eeddba}
 
+
+.tower-budget{grid-column:1/-1;background:#f1eafa;border:1px solid #e0d1ef;border-radius:11px;padding:13px;margin-bottom:20px}.limit-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;color:#6c4ba0;font-size:12px;font-weight:700}.limit-toggle input{width:18px;height:18px;accent-color:#7e5bc3}.limit-toggle small{display:block;font-size:9px;font-weight:400;color:#9275ac;margin-top:3px}.tower-budget p{font-size:10px;line-height:1.6;color:#8b759d;margin:10px 0}.tower-budget output{display:block;font-size:12px;font-weight:700;color:#7753a3;margin-bottom:10px;font-variant-numeric:tabular-nums}.tower-budget button{width:100%;background:#fff}.tower-budget button:hover{background:#e7daf5}
+
+#reset-sliders{margin-top:14px;width:100%}
