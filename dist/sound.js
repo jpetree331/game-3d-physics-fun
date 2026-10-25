@@ -9,6 +9,7 @@ export const SOUND_PROFILES={
   jelly:{frequency:115,decay:.085,duration:.45,modes:[1,1.45,2.13],weights:[1,.2,.06],noise:.08},
 };
 export function synthesizeImpact(material,variant=0,sampleRate=24000){
+  if(material==='cannon')return synthesizeCannon(sampleRate);
   const p=SOUND_PROFILES[material]??SOUND_PROFILES.wood,data=new Float32Array(Math.ceil(sampleRate*p.duration));
   let seed=1931+variant*7919,previous=0,peak=0;const pitch=1+(variant-1.5)*.027;
   for(let i=0;i<data.length;i++){
@@ -23,6 +24,19 @@ export function synthesizeImpact(material,variant=0,sampleRate=24000){
     data[i]=value;peak=Math.max(peak,Math.abs(value));
   }
   for(let i=0;i<data.length;i++)data[i]*=.8/Math.max(1,peak);
+  return data;
+}
+// A padded bass transient and low-pass noise burst, with no ringing partials.
+export function synthesizeCannon(sampleRate=24000){
+  const duration=.28,data=new Float32Array(Math.ceil(sampleRate*duration));
+  const alpha=1-Math.exp(-2*Math.PI*260/sampleRate);let seed=713,low=0,smooth=0;
+  for(let i=0;i<data.length;i++){
+    const t=i/sampleRate;seed=(seed*1664525+1013904223)>>>0;
+    low+=alpha*(seed/2147483648-1-low);smooth+=alpha*(low-smooth);
+    const envelope=(1-Math.exp(-t*650))*Math.exp(-t*23)*(1-t/duration)**2;
+    const phase=2*Math.PI*(52*t+38*.025*(1-Math.exp(-t/.025)));
+    data[i]=(.55*Math.sin(phase)+smooth*1.4)*envelope;
+  }
   return data;
 }
 export function impactVoice({energy=1,size=.4}={}){
@@ -52,7 +66,7 @@ export class CollisionAudio {
     if(this.recentBodies.size>512)for(const [key,time] of this.recentBodies)if(now-time>1)this.recentBodies.delete(key);
     const key=`${material}-${this.sequence++%4}`;
     if(!this.buffers.has(key)){const pcm=synthesizeImpact(material,this.sequence%4),buffer=c.createBuffer(1,pcm.length,24000);buffer.copyToChannel(pcm,0);this.buffers.set(key,buffer);}
-    const source=c.createBufferSource(),gain=c.createGain(),panner=c.createStereoPanner(),voice=impactVoice({energy,size});
+    const source=c.createBufferSource(),gain=c.createGain(),panner=c.createStereoPanner(),voice=material==='cannon'?{gain:.32,rate:1}:impactVoice({energy,size});
     source.buffer=this.buffers.get(key);source.playbackRate.value=voice.rate;gain.gain.value=voice.gain;panner.pan.value=Math.max(-.85,Math.min(.85,pan));
     source.connect(gain);gain.connect(panner);panner.connect(this.input);this.voices.add(source);
     source.onended=()=>{this.voices.delete(source);source.disconnect();gain.disconnect();panner.disconnect();};source.start();return true;

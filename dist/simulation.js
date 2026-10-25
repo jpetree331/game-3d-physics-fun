@@ -151,7 +151,7 @@ export class Simulation {
   launch(target){
     const p=this.params,from=towerLaunchPoint(p);
     const item=this.addBall(p.ball,[from.x,from.y,from.z],{mass:p.mass,role:'projectile',color:1});
-    if(item)item.body.setLinvel(launchVelocity(from,target,p.power,this.world.gravity),true);
+    if(item){item.soundMaterial='cannon';item.body.setLinvel(launchVelocity(from,target,p.power,this.world.gravity),true);}
     return item;
   }
   drop(target){

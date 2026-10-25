@@ -282,7 +282,7 @@ function resetSliders(delivery=states.tower.delivery){
   toast('Sliders reset. A fresh experiment.');
 }
 function updatePause(){$('#pause').textContent=paused?'▶':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'Resume simulation':'Pause simulation');$('#pause').title=paused?'Resume (Space)':'Pause (Space)';if(sim)updateStatus();}
-function doAction(){if(!ready)return;if(paused){paused=false;updatePause();}if(active==='jelly'){rebuild(false);return;}if(sim.items.length>=sim.bodyLimit){toast('The tray is full. Rebuild for a fresh start.');return;}sim.action(aim);if(active==='domino')toast('Here comes the ripple…');}
+function doAction(){if(!ready)return;if(paused){paused=false;updatePause();}if(active==='jelly'){rebuild(false);return;}if(sim.items.length>=sim.bodyLimit){toast('The tray is full. Rebuild for a fresh start.');return;}const item=sim.action(aim);if(item?.soundMaterial==='cannon')collisionAudio.play('cannon',{preview:true});if(active==='domino')toast('Here comes the ripple…');}
 function setMode(value){
   releaseDrag();mode=value;
   document.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('active',b.dataset.mode===value);b.setAttribute('aria-pressed',String(b.dataset.mode===value));});
@@ -350,7 +350,7 @@ function bindPointer(){
   });
   canvas.addEventListener('pointercancel',releaseDrag);canvas.addEventListener('lostpointercapture',()=>{if(pointerStart)releaseDrag();});
 }
-function soundFor(item){return soundMaterial!=='auto'?soundMaterial:item.role==='jelly'?'jelly':item.shape==='ball'?finish:'wood';}
+function soundFor(item){return item.soundMaterial??(soundMaterial!=='auto'?soundMaterial:item.role==='jelly'?'jelly':item.shape==='ball'?finish:'wood');}
 function updateSoundUI(){
   for(const id of ['sound','sound-toggle']){const button=$('#'+id);button.textContent=soundOn?'Sound on':'Sound off';button.setAttribute('aria-pressed',String(soundOn));button.disabled=soundBusy;}
 }
@@ -360,7 +360,7 @@ async function enableSound(preview=false){
   catch(error){console.error(error);soundOn=false;sim.captureImpacts=false;collisionAudio.disable();toast('Sound could not start. Try enabling it again.');}
   finally{soundBusy=false;updateSoundUI();}
 }
-function toggleSound(){if(soundBusy)return;if(soundOn){soundOn=false;sim.captureImpacts=false;collisionAudio.disable();updateSoundUI();}else enableSound(true);}
+function toggleSound(){if(soundBusy)return;if(soundOn){soundOn=false;sim.captureImpacts=false;collisionAudio.disable();updateSoundUI();}else enableSound();}
 function drainAudio(){
   const impacts=sim.drainImpacts();if(!soundOn)return;
   impacts.sort((a,b)=>b.energy-a.energy);

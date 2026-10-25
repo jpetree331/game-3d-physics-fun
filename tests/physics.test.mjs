@@ -29,7 +29,8 @@ test('a tower beyond both old caps has physics for every cube and can still fire
   try{
     assert.equal(sim.items.length,1200);assert.equal(sim.bodyLimit,Infinity);
     const shot=sim.launch({x:0,y:2,z:-.6});assert.ok(shot);assert.ok(shot.initial.z>sim.params.depth*(sim.params.cube+.012)/2);
-    assert.ok(sim.drop({x:0,z:-.6}));run(sim,180);finite(sim);
+    assert.equal(shot.soundMaterial,'cannon');
+    const dropped=sim.drop({x:0,z:-.6});assert.ok(dropped);assert.equal(dropped.soundMaterial,undefined);run(sim,180);finite(sim);
     assert.ok(sim.items.filter(i=>i.role==='tower'&&Math.hypot(i.body.translation().x-i.initial.x,i.body.translation().z-i.initial.z)>.1).length>0);
     sim.reset('tower',SCENES.tower.defaults);assert.equal(sim.items.length,240);assert.equal(sim.bodyLimit,650);
   }finally{sim.dispose();}

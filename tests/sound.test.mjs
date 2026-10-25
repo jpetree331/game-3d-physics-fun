@@ -22,3 +22,14 @@ test('impact strength changes volume while piece size changes pitch with bounded
 test('sound starts disabled, can mute without a context, and clamps volume',()=>{
   const audio=new CollisionAudio();assert.equal(audio.play('glass'),false);audio.disable();audio.setVolume(10);assert.equal(audio.volume,1);audio.setVolume(-1);assert.equal(audio.volume,0);assert.equal(audio.context,null);
 });
+
+test('cannon transient is short, bass-heavy, soft, and fades without a click',()=>{
+  const pcm=synthesizeImpact('cannon'),rate=24000;
+  assert.ok(pcm.length/rate<=.3);assert.ok(pcm.every(Number.isFinite));
+  assert.ok(pcm.every(x=>Math.abs(x)<.6));assert.equal(pcm[0],0);assert.ok(Math.abs(pcm.at(-1))<1e-6);
+  const energy=pcm.reduce((sum,x)=>sum+x*x,0);
+  let high=0,low=0;const alpha=1-Math.exp(-2*Math.PI*300/rate);
+  for(const x of pcm){low+=alpha*(x-low);high+=(x-low)**2;}
+  assert.ok(high/energy<.1,`High-frequency energy ratio: ${high/energy}`);
+  assert.ok(pcm.subarray(-1200).every(x=>Math.abs(x)<.001));
+});
