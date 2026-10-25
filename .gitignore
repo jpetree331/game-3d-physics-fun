@@ -2,3 +2,5 @@ node_modules/
 .sites-runtime/
 *.tar.gz
 qa/
+.vercel/
+.env*

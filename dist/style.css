@@ -3,3 +3,9 @@
 
 .finish-section{border-top:1px solid var(--line);padding-top:17px;margin-top:18px}.finish-section .select-field{margin-bottom:8px}.finish-section label span{color:#b097ce;margin-left:3px}.finish-section p{font-size:9px;color:#a697af;line-height:1.6;margin:0 0 15px}
 
+
+.tower-modes{display:flex;gap:5px;background:#eee6f7;border-radius:10px;padding:5px;margin-bottom:20px;grid-column:1/-1}.tower-modes button{border:0;background:transparent;color:#957cab;border-radius:7px;padding:10px 6px;font-size:10px;flex:1;white-space:nowrap}.tower-modes button.active{background:#fff;color:#7955b2;box-shadow:0 2px 8px #6e4f9220;font-weight:700}.density-presets{display:flex;gap:5px;margin:0 0 12px;grid-column:1/-1}.density-presets button{font-size:9px;flex:1;border:1px solid #e2d7ea;background:#f4eff8;padding:7px 2px;border-radius:6px;color:#8a6a9e}.drop-summary{padding:12px;background:#fff4dc;border:1px solid #f1e2bf;border-radius:9px;margin-bottom:16px;grid-column:1/-1}.drop-summary strong{font-size:19px;color:#a67e3f;display:block;font-variant-numeric:tabular-nums}.drop-summary span{font-size:9px;color:#ae9270;display:block;margin-top:4px;line-height:1.5}
+
+
+.transport .stage-action{background:#f3e8cf;color:#a98243;font-weight:700;font-size:11px;padding:0 12px;min-width:68px;white-space:nowrap}.transport .stage-action:hover{background:#eeddba}
+

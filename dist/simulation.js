@@ -1,5 +1,5 @@
 import RAPIER from './vendor/rapier.mjs';
-import {DEFAULT_WORLD,MAX_BODIES,towerLayout,launchVelocity,seeded} from './model.js';
+import {DEFAULT_WORLD,MAX_BODIES,towerLayout,launchVelocity,seeded,dropProperties,towerTop} from './model.js';
 export {RAPIER};
 export const quatZ=a=>({x:0,y:0,z:Math.sin(a/2),w:Math.cos(a/2)});
 export const quatY=a=>({x:0,y:Math.sin(a/2),z:0,w:Math.cos(a/2)});
@@ -8,7 +8,7 @@ export class Simulation {
   reset(scene,params,settings=this.settings){
     this.world?.free();this.queue?.free();this.scene=scene;this.params={...params};this.settings={...settings};
     this.world=new RAPIER.World({x:0,y:-settings.gravity,z:0});this.world.numSolverIterations=8;
-    this.queue=new RAPIER.EventQueue(true);this.items=[];this.fixed=[];this.motors=[];this.time=0;this.pour=0;this.serial=0;this.rand=seeded(42);this.field={x:0,y:0.4,z:0};
+    this.queue=new RAPIER.EventQueue(true);this.items=[];this.fixed=[];this.motors=[];this.jellyJoints=[];this.jellyNodes=[];this.slab=null;this.time=0;this.pour=0;this.serial=0;this.rand=seeded(42);this.field={x:0,y:0.4,z:0};
     this.addBox([15,0.4,13],[0,-0.2,0],{fixed:true,role:'floor'});
     for(const [size,pos] of [[[15,.45,.22],[0,.22,-6.5]],[[15,.45,.22],[0,.22,6.5]],[[.22,.45,13],[-7.5,.22,0]],[[.22,.45,13],[7.5,.22,0]]])this.addBox(size,pos,{fixed:true,role:'rim'});
     if(scene==='tower')this.buildTower();
@@ -16,6 +16,7 @@ export class Simulation {
     if(scene==='domino')this.buildDomino();
     if(scene==='tumbler')this.buildTumbler();
     if(scene==='magnet')this.buildMagnet();
+    if(scene==='jelly')this.buildJelly();
     this.applyWorld(settings);
   }
   add(shape,size,pos,opts={}){
@@ -34,7 +35,37 @@ export class Simulation {
   addBox(size,pos,opts){return this.add('box',size,pos,opts);}
   addBall(diameter,pos,opts){return this.add('ball',[diameter,diameter,diameter],pos,opts);}
   remove(item){const i=this.items.indexOf(item);if(i>=0){this.items.splice(i,1);this.world.removeRigidBody(item.body);}}
-  buildTower(){for(const p of towerLayout(this.params))this.addBox([this.params.cube,this.params.cube,this.params.cube],[p.x,p.y,p.z],{color:p.color,role:'tower'});}
+  buildTower(){
+    for(const p of towerLayout(this.params))this.addBox([this.params.cube,this.params.cube,this.params.cube],[p.x,p.y,p.z],{color:p.color,role:'tower'});
+    if(this.params.delivery==='domino'){
+      const p=this.params,x=-(p.width*(p.cube+.012))/2-p.slabThickness/2-.65;
+      this.slab=this.addBox([p.slabThickness,p.slabHeight,p.slabWidth],[x,p.slabHeight/2+.04,-.6],{mass:p.slabMass,color:4,role:'slab'});
+      const pivot=this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x,.04,-.6));
+      this.world.createImpulseJoint(RAPIER.JointData.revolute({x:0,y:0,z:0},{x:0,y:-p.slabHeight/2,z:0},{x:0,y:0,z:1}),pivot,this.slab.body,true);
+    }
+  }
+  buildJelly(){
+    const p=this.params;
+    for(let i=0;i<p.steps;i++){const h=(p.steps-i)*p.rise;this.addBox([1.12,h,3.8],[-4.5+i*1.1,h/2,-.3],{fixed:true,role:'step',color:i%6});}
+    this.addBox([.35,2.4,5.5],[7.1,1.2,-.3],{fixed:true,role:'jellybumper'});
+    const n=4,spacing=p.size/(n-1),center={x:-4.3,y:p.steps*p.rise+p.drop+p.size/2,z:-.3};
+    for(let x=0;x<n;x++)for(let y=0;y<n;y++)for(let z=0;z<n;z++){
+      const item=this.addBall(.11, [center.x+(x-1.5)*spacing,center.y+(y-1.5)*spacing,center.z+(z-1.5)*spacing],{mass:8/64,role:'jelly',color:0});
+      item.grid=[x,y,z];item.collider.setCollisionGroups(0x00020001);item.body.setEnabledRotations(false,false,false,true);item.body.setLinvel({x:p.nudge,y:0,z:0},true);this.jellyNodes.push(item);
+    }
+    this.updateJellySprings();
+  }
+  updateJellySprings(){
+    for(const joint of this.jellyJoints)if(joint.isValid())this.world.removeImpulseJoint(joint,true);
+    this.jellyJoints=[];const p=this.params,spacing=p.size/3,stiffness=25+Math.pow(p.stiffness,2)*5000,damping=.05+p.damping*2.5;
+    for(let i=0;i<this.jellyNodes.length;i++)for(let j=i+1;j<this.jellyNodes.length;j++){
+      const a=this.jellyNodes[i],b=this.jellyNodes[j],diff=a.grid.map((v,k)=>Math.abs(v-b.grid[k]));
+      // Neighbor, shear, and longer cross-body springs resist collapse and twisting.
+      if(Math.max(...diff)>1&&!(diff[0]===diff[1]&&diff[1]===diff[2]))continue;
+      const rest=Math.hypot(...diff)*spacing;
+      const joint=this.world.createImpulseJoint(RAPIER.JointData.spring(rest,stiffness,damping,{x:0,y:0,z:0},{x:0,y:0,z:0}),a.body,b.body,true);this.jellyJoints.push(joint);
+    }
+  }
   buildMarbles(){
     this.addBox([8.2,6.5,.22],[0,3.65,-2.65],{fixed:true,role:'pegboard'});
     this.addBox([8.2,6.5,.12],[0,3.65,-1.48],{fixed:true,role:'invisible'});
@@ -92,8 +123,16 @@ export class Simulation {
     if(item)item.body.setLinvel(launchVelocity(from,target,p.power,this.world.gravity),true);
     return item;
   }
+  drop(target){
+    const p=this.params,properties=dropProperties(p);
+    return this.addBall(p.ball,[target.x,towerTop(p)+p.dropHeight+p.ball/2,target.z],{mass:properties.mass,role:'projectile',color:1});
+  }
   action(target){
-    if(this.scene==='tower')return this.launch(target);
+    if(this.scene==='tower'){
+      if(this.params.delivery==='domino'){if(this.slab)this.slab.body.applyTorqueImpulse({x:0,y:0,z:-this.params.slabMass*this.params.slabHeight*.4},true);return;}
+      return this.params.delivery==='drop'?this.drop(target):this.launch(target);
+    }
+    if(this.scene==='jelly'){this.reset('jelly',this.params,this.settings);return;}
     if(this.scene==='marbles'){for(let i=0;i<16;i++)this.spawnMarble(7.4+Math.floor(i/4)*.35);}
     if(this.scene==='domino'){
       const first=this.items[0],second=this.items[1];if(!first||!second)return;

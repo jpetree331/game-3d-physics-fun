@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Simulation,RAPIER} from '../dist/simulation.js';
-import {SCENES,DEFAULT_WORLD,towerLayout,validRecipe,MAX_BODIES} from '../dist/model.js';
+import {SCENES,DEFAULT_WORLD,towerLayout,validRecipe,MAX_BODIES,dropProperties,towerTop} from '../dist/model.js';
 await RAPIER.init();
 function create(scene='tower',params={}){const sim=new Simulation();sim.reset(scene,{...SCENES[scene].defaults,...params});return sim;}
 function run(sim,frames){for(let i=0;i<frames;i++)sim.step();}
@@ -34,4 +34,22 @@ test('recipe input is validated and clamped before loading',()=>{
   assert.equal(validRecipe({scene:'unknown',name:'bad'}),null);assert.equal(validRecipe({scene:'tower',name:null}),null);
   const p=validRecipe({scene:'tower',name:'test',params:{width:1000,cube:-1,shape:'bad'},world:{gravity:-100},palette:'missing'});assert.equal(p.params.width,9);assert.equal(p.params.cube,.3);assert.equal(p.params.shape,'solid');assert.equal(p.world.gravity,0);assert.equal(p.palette,'sorbet');
   assert.equal(p.finish,'glass');assert.equal(validRecipe({scene:'marbles',name:'Metal',finish:'metal'}).finish,'metal');
+});
+test('density and diameter determine dropped mass while direct-weight mode stays independent',()=>{
+  const p={...SCENES.tower.defaults,massMode:'density',density:1000,ball:.5};
+  const a=dropProperties(p),b=dropProperties({...p,ball:1});assert.ok(Math.abs(b.mass/a.mass-8)<.00001);
+  assert.equal(dropProperties({...p,massMode:'weight',dropMass:50}).mass,50);
+  const sim=create('tower',{...p,delivery:'drop',dropHeight:6});try{const ball=sim.drop({x:0,z:-.6});assert.ok(Math.abs(ball.body.mass()-a.mass)<.001);assert.ok(Math.abs(ball.body.translation().y-(towerTop(sim.params)+6+.25))<.00001);assert.equal(ball.body.linvel().y,0);run(sim,360);assert.ok(sim.items.filter(i=>i.role==='tower'&&Math.abs(i.body.translation().x-i.initial.x)>.3).length>20);finite(sim);}finally{sim.dispose();}
+});
+test('falling domino is initially upright and tips into the tower on command',()=>{
+  const sim=create('tower',{delivery:'domino'});try{run(sim,120);assert.ok(Math.abs(sim.slab.body.rotation().z)<.01);assert.ok(Math.abs(sim.slab.body.mass()-40)<.001);sim.action();run(sim,360);assert.ok(Math.abs(sim.slab.body.rotation().z)>.1);assert.ok(sim.items.filter(i=>i.role==='tower'&&Math.abs(i.body.translation().x-i.initial.x)>.3).length>15);finite(sim);}finally{sim.dispose();}
+});
+test('jelly deforms, travels down stairs, and stays finite at both stiffness extremes',()=>{
+  const strains=[];
+  for(const stiffness of [0,1]){const sim=create('jelly',{stiffness});try{assert.equal(sim.jellyNodes.length,64);assert.ok(sim.jellyJoints.length>200);let maxStrain=0;for(let step=0;step<240;step++){
+    sim.step();for(const joint of sim.jellyJoints){const a=joint.body1().translation(),b=joint.body2().translation();const aa=sim.jellyNodes.find(i=>i.body.handle===joint.body1().handle).initial,bb=sim.jellyNodes.find(i=>i.body.handle===joint.body2().handle).initial;const rest=Math.hypot(aa.x-bb.x,aa.y-bb.y,aa.z-bb.z);maxStrain=Math.max(maxStrain,Math.abs(Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z)/rest-1));}}
+    finite(sim);const center=sim.jellyNodes.reduce((s,i)=>s+i.body.translation().x,0)/64;assert.ok(center>-1,`Cube did not travel down stairs: ${center}`);strains.push(maxStrain);
+    const positions=sim.items.map(i=>i.body.translation());sim.params.stiffness=.5;sim.updateJellySprings();assert.deepEqual(sim.items.map(i=>i.body.translation()),positions);run(sim,60);finite(sim);
+  }finally{sim.dispose();}}
+  assert.ok(strains[0]>strains[1]*2,`Soft/firm deformation: ${strains}`);
 });
