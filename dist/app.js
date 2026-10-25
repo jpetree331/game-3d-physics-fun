@@ -282,7 +282,7 @@ function resetSliders(delivery=states.tower.delivery){
   toast('Sliders reset. A fresh experiment.');
 }
 function updatePause(){$('#pause').textContent=paused?'▶':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'Resume simulation':'Pause simulation');$('#pause').title=paused?'Resume (Space)':'Pause (Space)';if(sim)updateStatus();}
-function doAction(){if(!ready)return;if(paused){paused=false;updatePause();}if(active==='jelly'){rebuild(false);return;}if(sim.items.length>=sim.bodyLimit){toast('The tray is full. Rebuild for a fresh start.');return;}const item=sim.action(aim);if(item?.soundMaterial==='cannon')collisionAudio.play('cannon',{preview:true});if(active==='domino')toast('Here comes the ripple…');}
+function doAction(){if(!ready)return;if(paused){paused=false;updatePause();}if(active==='jelly'){rebuild(false);return;}if(sim.items.length>=sim.bodyLimit){toast('The tray is full. Rebuild for a fresh start.');return;}const item=sim.action(aim);if(item?.soundMaterial==='cannon'&&sim.params.delivery==='launch')collisionAudio.play('cannon',{preview:true});if(active==='domino')toast('Here comes the ripple…');}
 function setMode(value){
   releaseDrag();mode=value;
   document.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('active',b.dataset.mode===value);b.setAttribute('aria-pressed',String(b.dataset.mode===value));});

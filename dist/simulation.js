@@ -156,7 +156,9 @@ export class Simulation {
   }
   drop(target){
     const p=this.params,properties=dropProperties(p);
-    return this.addBall(p.ball,[target.x,towerTop(p)+p.dropHeight+p.ball/2,target.z],{mass:properties.mass,role:'projectile',color:1});
+    const item=this.addBall(p.ball,[target.x,towerTop(p)+p.dropHeight+p.ball/2,target.z],{mass:properties.mass,role:'projectile',color:1});
+    if(item)item.soundMaterial='cannon';
+    return item;
   }
   action(target){
     if(this.scene==='tower'){
