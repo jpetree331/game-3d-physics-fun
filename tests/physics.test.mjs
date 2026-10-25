@@ -30,7 +30,7 @@ test('a tower beyond both old caps has physics for every cube and can still fire
     assert.equal(sim.items.length,1200);assert.equal(sim.bodyLimit,Infinity);
     const shot=sim.launch({x:0,y:2,z:-.6});assert.ok(shot);assert.ok(shot.initial.z>sim.params.depth*(sim.params.cube+.012)/2);
     assert.equal(shot.soundMaterial,'cannon');
-    const dropped=sim.drop({x:0,z:-.6});assert.ok(dropped);assert.equal(dropped.soundMaterial,'cannon');run(sim,180);finite(sim);
+    const dropped=sim.drop({x:0,z:-.6});assert.ok(dropped);assert.equal(dropped.soundMaterial,'thud');run(sim,180);finite(sim);
     assert.ok(sim.items.filter(i=>i.role==='tower'&&Math.hypot(i.body.translation().x-i.initial.x,i.body.translation().z-i.initial.z)>.1).length>0);
     sim.reset('tower',SCENES.tower.defaults);assert.equal(sim.items.length,240);assert.equal(sim.bodyLimit,650);
   }finally{sim.dispose();}
@@ -86,7 +86,7 @@ test('domino ripple topples most of the chain',()=>{
   }
 });
 test('all scenes survive repeated stepping and their primary actions',()=>{
-  for(const scene of ['marbles','tumbler','magnet']){const sim=create(scene);try{run(sim,180);sim.action();run(sim,180);assert.ok(sim.items.length>0);assert.ok(sim.items.length<=MAX_BODIES);finite(sim);if(scene==='tumbler')assert.ok(Math.abs(sim.motors[0].body.rotation().z)>.1);}finally{sim.dispose();}}
+  for(const scene of ['marbles','tumbler','magnet']){const sim=create(scene);try{run(sim,180);sim.action();run(sim,180);assert.ok(sim.items.length>0);assert.ok(sim.items.length<=MAX_BODIES);finite(sim);if(scene==='tumbler'){assert.ok(Math.abs(sim.motors[0].body.rotation().z)>.1);assert.ok(sim.items.every(item=>item.soundMaterial==='thud'));}}finally{sim.dispose();}}
 });
 test('marble recycling is bounded during continuous flow',()=>{
   const sim=create('marbles',{flow:12});try{run(sim,1400);assert.ok(sim.items.length<=260);finite(sim);}finally{sim.dispose();}

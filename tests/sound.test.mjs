@@ -33,3 +33,15 @@ test('cannon transient is short, bass-heavy, soft, and fades without a click',()
   assert.ok(high/energy<.1,`High-frequency energy ratio: ${high/energy}`);
   assert.ok(pcm.subarray(-1200).every(x=>Math.abs(x)<.001));
 });
+
+test('dropped-ball thud is distinct, low, brief, and quickly damped',()=>{
+  const pcm=synthesizeImpact('thud'),rate=24000;
+  assert.ok(pcm.length/rate<=.16);assert.ok(pcm.every(Number.isFinite));
+  assert.ok(pcm.every(x=>Math.abs(x)<.6));assert.equal(Math.abs(pcm[0]),0);assert.ok(Math.abs(pcm.at(-1))<1e-6);
+  assert.notDeepEqual(pcm,synthesizeImpact('cannon'));assert.notDeepEqual(pcm,synthesizeImpact('thud',3));
+  const energy=pcm.reduce((sum,x)=>sum+x*x,0);
+  let high=0,low=0;const alpha=1-Math.exp(-2*Math.PI*400/rate);
+  for(const x of pcm){low+=alpha*(x-low);high+=(x-low)**2;}
+  assert.ok(energy>1);assert.ok(high/energy<.1);
+  assert.ok(pcm.subarray(Math.floor(rate*.08)).every(x=>Math.abs(x)<.003));
+});

@@ -139,7 +139,9 @@ export class Simulation {
     const size=this.params.size;const col=i%8,row=Math.floor(i/8)%9,layer=Math.floor(i/72)%3;
     const pos=[(col-3.5)*.44,1.5+row*.44,-1.45+layer*.65];
     const shape=this.params.kind==='balls'||(this.params.kind==='mixed'&&i%2===0)?'ball':'box';
-    return this.add(shape,[size,size,size],pos,{role:'tumble'});
+    const item=this.add(shape,[size,size,size],pos,{role:'tumble'});
+    if(item)item.soundMaterial='thud';
+    return item;
   }
   buildMagnet(){for(let i=0;i<this.params.count;i++)this.addBall(this.params.size,[(this.rand()-.5)*10,.5+this.rand()*2,(this.rand()-.5)*8],{role:'bead'});}
   applyWorld(settings){
@@ -157,7 +159,7 @@ export class Simulation {
   drop(target){
     const p=this.params,properties=dropProperties(p);
     const item=this.addBall(p.ball,[target.x,towerTop(p)+p.dropHeight+p.ball/2,target.z],{mass:properties.mass,role:'projectile',color:1});
-    if(item)item.soundMaterial='cannon';
+    if(item)item.soundMaterial='thud';
     return item;
   }
   action(target){

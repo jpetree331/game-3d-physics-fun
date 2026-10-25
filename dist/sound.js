@@ -10,6 +10,7 @@ export const SOUND_PROFILES={
 };
 export function synthesizeImpact(material,variant=0,sampleRate=24000){
   if(material==='cannon')return synthesizeCannon(sampleRate);
+  if(material==='thud')return synthesizeThud(variant,sampleRate);
   const p=SOUND_PROFILES[material]??SOUND_PROFILES.wood,data=new Float32Array(Math.ceil(sampleRate*p.duration));
   let seed=1931+variant*7919,previous=0,peak=0;const pitch=1+(variant-1.5)*.027;
   for(let i=0;i<data.length;i++){
@@ -42,6 +43,20 @@ export function synthesizeCannon(sampleRate=24000){
 export function impactVoice({energy=1,size=.4}={}){
   return {gain:Math.min(.7,.055+Math.log1p(Math.max(0,energy)*12)*.12),rate:Math.min(1.7,Math.max(.6,(.45/Math.max(.1,size))**.3))};
 }
+// A damped solid-object contact: brief body resonance, no blast or pitch sweep.
+export function synthesizeThud(variant=0,sampleRate=24000){
+  const duration=.16,data=new Float32Array(Math.ceil(sampleRate*duration));
+  const alpha=1-Math.exp(-2*Math.PI*320/sampleRate),pitch=1+(variant-1.5)*.02;
+  let seed=2141+variant*7919,low=0;
+  for(let i=0;i<data.length;i++){
+    const t=i/sampleRate;seed=(seed*1664525+1013904223)>>>0;
+    low+=alpha*(seed/2147483648-1-low);
+    const body=.58*Math.sin(2*Math.PI*85*pitch*t)*Math.exp(-t/.018);
+    const contact=.16*Math.sin(2*Math.PI*149*pitch*t)*Math.exp(-t/.009)+.4*low*Math.exp(-t/.008);
+    data[i]=(body+contact)*(1-Math.exp(-t*1400))*(1-t/duration)**2;
+  }
+  return data;
+}
 export class CollisionAudio {
   constructor(){this.context=null;this.enabled=false;this.volume=.55;this.voices=new Set();this.buffers=new Map();this.lastHit=-Infinity;this.sequence=0;this.recentBodies=new Map();}
   async enable(){
@@ -67,6 +82,7 @@ export class CollisionAudio {
     const key=`${material}-${this.sequence++%4}`;
     if(!this.buffers.has(key)){const pcm=synthesizeImpact(material,this.sequence%4),buffer=c.createBuffer(1,pcm.length,24000);buffer.copyToChannel(pcm,0);this.buffers.set(key,buffer);}
     const source=c.createBufferSource(),gain=c.createGain(),panner=c.createStereoPanner(),voice=material==='cannon'?{gain:.32,rate:1}:impactVoice({energy,size});
+    if(material==='thud'){voice.gain=Math.min(.4,voice.gain*.7);voice.rate=Math.min(1.15,voice.rate);}
     source.buffer=this.buffers.get(key);source.playbackRate.value=voice.rate;gain.gain.value=voice.gain;panner.pan.value=Math.max(-.85,Math.min(.85,pan));
     source.connect(gain);gain.connect(panner);panner.connect(this.input);this.voices.add(source);
     source.onended=()=>{this.voices.delete(source);source.disconnect();gain.disconnect();panner.disconnect();};source.start();return true;
