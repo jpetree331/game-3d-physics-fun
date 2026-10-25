@@ -6,16 +6,22 @@ export const quatY=a=>({x:0,y:Math.sin(a/2),z:0,w:Math.cos(a/2)});
 export class Simulation {
   constructor(){this.world=null;this.items=[];this.fixed=[];this.motors=[];this.time=0;this.serial=0;this.field={x:0,y:0.4,z:0};this.settings={...DEFAULT_WORLD};}
   reset(scene,params,settings=this.settings){
-    this.world?.free();this.queue?.free();this.scene=scene;this.params={...params};this.settings={...settings};
+    this.world?.free();this.queue?.free();this.scene=scene;this.params={...params};this.settings={...settings};this.grabbed=null;
     this.world=new RAPIER.World({x:0,y:-settings.gravity,z:0});this.world.numSolverIterations=8;
-    this.queue=new RAPIER.EventQueue(true);this.items=[];this.fixed=[];this.motors=[];this.jellyJoints=[];this.jellyNodes=[];this.slab=null;this.time=0;this.pour=0;this.serial=0;this.rand=seeded(42);this.field={x:0,y:0.4,z:0};
+    this.queue=new RAPIER.EventQueue(true);this.items=[];this.fixed=[];this.motors=[];this.colliderItems=new Map();this.jellyJoints=[];this.jellyNodes=[];this.slab=null;this.time=0;this.pour=0;this.serial=0;this.rand=seeded(42);this.field={x:0,y:0.4,z:0};
     this.bodyLimit=scene==='tower'&&params.unlimited?Infinity:MAX_BODIES;
     this.tray=scene==='tower'?towerTray(params):{width:15,depth:13};
     this.dominoPoints=scene==='domino'?dominoLayout(params):[];
     if(scene==='domino')this.tray={width:Math.max(15,...this.dominoPoints.map(p=>Math.abs(p.x)*2+3)),depth:Math.max(13,...this.dominoPoints.map(p=>Math.abs(p.z)*2+3))};
     const {width:w,depth:d}=this.tray;
-    this.addBox([w,0.4,d],[0,-0.2,0],{fixed:true,role:'floor'});
-    for(const [size,pos] of [[[w,.45,.22],[0,.22,-d/2]],[[w,.45,.22],[0,.22,d/2]],[[.22,.45,d],[-w/2,.22,0]],[[.22,.45,d],[w/2,.22,0]]])this.addBox(size,pos,{fixed:true,role:'rim'});
+    if(scene==='tower'){
+      const body=this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+      const collider=this.world.createCollider(new RAPIER.ColliderDesc(new RAPIER.HalfSpace({x:0,y:1,z:0})),body);
+      const floor={body,collider,shape:'plane',role:'invisible',mass:0};this.fixed.push(floor);this.colliderItems.set(collider.handle,floor);
+    }else{
+      this.addBox([w,0.4,d],[0,-0.2,0],{fixed:true,role:'floor'});
+      for(const [size,pos] of [[[w,.45,.22],[0,.22,-d/2]],[[w,.45,.22],[0,.22,d/2]],[[.22,.45,d],[-w/2,.22,0]],[[.22,.45,d],[w/2,.22,0]]])this.addBox(size,pos,{fixed:true,role:'rim'});
+    }
     if(scene==='tower')this.buildTower();
     if(scene==='marbles')this.buildMarbles();
     if(scene==='domino')this.buildDomino();
@@ -35,11 +41,37 @@ export class Simulation {
     if(!opts.fixed&&!opts.kinematic)colliderDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
     const collider=this.world.createCollider(colliderDesc,body);
     const item={id:this.serial++,body,collider,shape,size,color:opts.color??Math.floor(this.rand()*6),role:opts.role||'piece',birth:this.time,initial:{x:pos[0],y:pos[1],z:pos[2]}};
+    item.mass=body.mass();this.colliderItems.set(collider.handle,item);
     (opts.fixed||opts.kinematic?this.fixed:this.items).push(item);return item;
   }
   addBox(size,pos,opts){return this.add('box',size,pos,opts);}
   addBall(diameter,pos,opts){return this.add('ball',[diameter,diameter,diameter],pos,opts);}
-  remove(item){const i=this.items.indexOf(item);if(i>=0){this.items.splice(i,1);this.world.removeRigidBody(item.body);}}
+  remove(item){const i=this.items.indexOf(item);if(i>=0){if(this.grabbed===item)this.endGrab();this.colliderItems.delete(item.collider.handle);this.items.splice(i,1);this.world.removeRigidBody(item.body);}}
+  beginGrab(item){
+    this.endGrab();if(!item?.body.isValid()||!item.body.isDynamic())return false;
+    this.grabbed=item;item.body.resetForces(true);item.body.setGravityScale(0,true);return true;
+  }
+  dragTo(target){
+    const body=this.grabbed?.body;if(!body?.isValid())return;
+    const p=body.translation(),v={x:(target.x-p.x)*18,y:(target.y-p.y)*18,z:(target.z-p.z)*18},scale=Math.min(1,25/Math.max(.001,Math.hypot(v.x,v.y,v.z)));
+    body.setLinvel({x:v.x*scale,y:v.y*scale,z:v.z*scale},true);body.setAngvel({x:0,y:0,z:0},true);
+  }
+  endGrab(){if(this.grabbed?.body.isValid())this.grabbed.body.setGravityScale(1,true);this.grabbed=null;}
+  drainImpacts(max=6){
+    const impacts=[];
+    this.queue.drainCollisionEvents((a,b,started)=>{
+      if(!started||!this.captureImpacts)return;
+      const one=this.colliderItems.get(a),two=this.colliderItems.get(b);if(!one&&!two)return;
+      const av=one?.impactVelocity??{x:0,y:0,z:0},bv=two?.impactVelocity??{x:0,y:0,z:0};
+      const speed=Math.hypot(av.x-bv.x,av.y-bv.y,av.z-bv.z);if(speed<.35)return;
+      const dynamic=[one,two].filter(i=>i?.body.isDynamic());if(!dynamic.length)return;
+      const item=dynamic.find(i=>i.shape==='ball')??dynamic[0],mass=dynamic.length===2?dynamic[0].mass*dynamic[1].mass/(dynamic[0].mass+dynamic[1].mass):item.mass;
+      const energy=.5*mass*speed*speed;if(energy<.002)return;
+      const impact={item,energy,speed,position:item.body.translation()};
+      if(impacts.length<max)impacts.push(impact);else{let weakest=0;for(let i=1;i<impacts.length;i++)if(impacts[i].energy<impacts[weakest].energy)weakest=i;if(energy>impacts[weakest].energy)impacts[weakest]=impact;}
+    });
+    return impacts;
+  }
   buildTower(){
     for(const p of towerLayout(this.params))this.addBox([this.params.cube,this.params.cube,this.params.cube],[p.x,p.y,p.z],{color:p.color,role:'tower'});
     if(this.params.delivery==='domino'){
@@ -149,13 +181,15 @@ export class Simulation {
     }
     if(this.scene==='tumbler')for(const motor of this.motors){motor.angle+=dt*this.params.spin;motor.body.setNextKinematicRotation(quatZ(motor.angle));}
     if(this.scene==='magnet')for(const item of this.items){
+      if(item===this.grabbed)continue;
       const p=item.body.translation(),dx=this.field.x-p.x,dz=this.field.z-p.z,l=Math.max(.45,Math.hypot(dx,dz));
       const sign=this.params.polarity==='attract'?1:-1;
       const f=sign*this.params.strength*item.body.mass()/(1+l*.25);
       item.body.resetForces(false);item.body.addForce({x:dx/l*f,y:0,z:dz/l*f},true);
     }
+    if(this.captureImpacts)for(const item of this.items)item.impactVelocity=item.body.linvel();
     this.world.step(this.queue);
-    for(const item of [...this.items]){const p=item.body.translation();if(p.y < -8||p.y>70||Math.abs(p.x)>40||Math.abs(p.z)>40)this.remove(item);}
+    if(this.scene!=='tower')for(const item of [...this.items]){const p=item.body.translation();if(p.y < -8||p.y>70||Math.abs(p.x)>40||Math.abs(p.z)>40)this.remove(item);}
   }
   dispose(){this.world?.free();this.queue?.free();this.world=null;this.queue=null;}
 }

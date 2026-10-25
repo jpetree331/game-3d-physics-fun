@@ -104,5 +104,5 @@ export function validRecipe(value) {
   if(!value || !Object.hasOwn(SCENES,value.scene) || typeof value.name!=='string')return null;
   const world={...DEFAULT_WORLD};
   for(const [key,min,max] of [['gravity',0,25],['bounce',0,0.95],['friction',0,1],['drag',0,2],['tilt',-18,18]])if(Number.isFinite(value.world?.[key]))world[key]=Math.max(min,Math.min(max,value.world[key]));
-  return {scene:value.scene,name:value.name.slice(0,60),params:cleanSettings(value.scene,value.params),world,palette:Object.hasOwn(PALETTES,value.palette)?value.palette:'sorbet',finish:['glass','metal','resin'].includes(value.finish)?value.finish:'glass'};
+  return {scene:value.scene,name:value.name.slice(0,60),params:cleanSettings(value.scene,value.params),world,palette:Object.hasOwn(PALETTES,value.palette)?value.palette:'sorbet',finish:['glass','metal','ceramic','resin'].includes(value.finish)?value.finish:'glass'};
 }

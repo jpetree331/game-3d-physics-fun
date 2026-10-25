@@ -49,6 +49,36 @@ test('each tower shape fits within the cap and rebuild restores its layout',()=>
 test('world sliders immediately update gravity, grip, and bounce',()=>{
   const sim=create();try{sim.applyWorld({...DEFAULT_WORLD,gravity:0,bounce:.8,friction:.1,drag:.7});assert.ok(Math.abs(sim.world.gravity.y)===0);assert.ok(Math.abs(sim.items[0].collider.restitution()-.8)<.0001);assert.ok(Math.abs(sim.items[0].collider.friction()-.1)<.0001);sim.applyWorld({...DEFAULT_WORLD,tilt:15});assert.ok(sim.world.gravity.x>0);}finally{sim.dispose();}
 });
+
+test('grabbing a magnetic bead overrides the field and restores gravity on release',()=>{
+  const sim=create('magnet',{count:30,strength:70});
+  try{
+    const item=sim.items[0],target={x:4,y:4,z:3};assert.equal(sim.beginGrab(item),true);
+    for(let i=0;i<120;i++){sim.dragTo(target);sim.step();}
+    const held=item.body.translation();assert.ok(Math.hypot(held.x-target.x,held.y-target.y,held.z-target.z)<.05);assert.equal(item.body.gravityScale(),0);
+    sim.endGrab();assert.equal(item.body.gravityScale(),1);run(sim,30);assert.ok(item.body.translation().y<held.y-.5);
+    sim.beginGrab(item);sim.remove(item);assert.equal(sim.grabbed,null);
+  }finally{sim.dispose();}
+});
+test('Tower Smash keeps distant and high debris on a truly infinite collider',()=>{
+  const sim=create();
+  try{
+    assert.equal(sim.fixed.filter(i=>i.role==='rim').length,0);assert.equal(sim.fixed[0].collider.shape.type,RAPIER.ShapeType.HalfSpace);
+    const far=sim.addBox([.55,.55,.55],[250,80,-140]);run(sim,480);
+    assert.ok(far.body.isValid());assert.ok(sim.items.includes(far));assert.equal(sim.items.length,241);
+    assert.ok(Math.abs(far.body.translation().y-.275)<.04);finite(sim);
+  }finally{sim.dispose();}
+});
+test('collision audio receives real impact energy, bounds dense events, and ignores resting contacts',()=>{
+  const sim=create('tower',{width:3,height:3,depth:2});sim.captureImpacts=true;
+  try{
+    sim.addBall(.5,[40,5,0],{mass:2});let impacts=[];
+    for(let i=0;i<180;i++){sim.step();const events=sim.drainImpacts(4);assert.ok(events.length<=4);impacts.push(...events);}
+    assert.ok(impacts.some(e=>e.item.shape==='ball'&&e.energy>5));assert.ok(impacts.every(e=>Number.isFinite(e.energy)&&e.energy>0));
+    let settled=0;for(let i=0;i<120;i++){sim.step();settled+=sim.drainImpacts().length;}assert.equal(settled,0);
+    sim.captureImpacts=false;sim.addBall(.5,[45,2,0]);for(let i=0;i<60;i++){sim.step();assert.equal(sim.drainImpacts().length,0);}
+  }finally{sim.dispose();}
+});
 test('domino ripple topples most of the chain',()=>{
   for(const pattern of ['spiral','circle','wave','serpentine']){
     const sim=create('domino',{pattern});try{run(sim,60);const upright=sim.items.filter(i=>i.body.translation().y>.4).length;assert.equal(upright,sim.items.length,pattern);sim.action();run(sim,1200);const fallen=sim.items.filter(i=>i.body.translation().y<.35).length;assert.ok(fallen>sim.items.length*.8,`${pattern}: ${fallen}/${sim.items.length} fell`);finite(sim);}finally{sim.dispose();}
